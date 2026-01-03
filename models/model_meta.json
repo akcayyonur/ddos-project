@@ -1,0 +1,18 @@
+{
+  "feature_order": [
+    "duration",
+    "src_bytes",
+    "dst_bytes",
+    "count",
+    "srv_count",
+    "serror_rate",
+    "bytes_ratio",
+    "count_ratio",
+    "log_src_bytes",
+    "log_dst_bytes"
+  ],
+  "label_positive": 1,
+  "label_negative": 0,
+  "notes": "Ryu tarafında feature_order sırasıyla numerik vektör üretmelisin.",
+  "threshold": 0.5
+}
