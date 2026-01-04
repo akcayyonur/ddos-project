@@ -1,110 +1,176 @@
-# scripts/split_80_20.py
 import json
 from pathlib import Path
+
+import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
-# Ayarlar
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = PROJECT_ROOT / "data"
-DELIVER_DIR = PROJECT_ROOT / "deliver"
-DELIVER_DIR.mkdir(parents=True, exist_ok=True)
-
-# KDD kolon adları (config.py ile uyumlu)
-KDD_COLUMNS = [
-    "duration","protocol_type","service","flag","src_bytes","dst_bytes",
-    "land","wrong_fragment","urgent","hot","num_failed_logins","logged_in",
-    "num_compromised","root_shell","su_attempted","num_root","num_file_creations",
-    "num_shells","num_access_files","num_outbound_cmds","is_host_login",
-    "is_guest_login","count","srv_count","serror_rate","srv_serror_rate",
-    "rerror_rate","srv_rerror_rate","same_srv_rate","diff_srv_rate",
-    "srv_diff_host_rate","dst_host_count","dst_host_srv_count",
-    "dst_host_same_srv_rate","dst_host_diff_srv_rate","dst_host_same_src_port_rate",
-    "dst_host_srv_diff_host_rate","dst_host_serror_rate","dst_host_srv_serror_rate",
-    "dst_host_rerror_rate","dst_host_srv_rerror_rate","label"
+FEATURE_ORDER = [
+    "duration",
+    "src_bytes",
+    "dst_bytes",
+    "count",
+    "srv_count",
+    "serror_rate",
+    "bytes_ratio",
+    "count_ratio",
+    "log_src_bytes",
+    "log_dst_bytes",
 ]
 
-# Proje odağındaki 6 temel özellik
-FEATURES = ["duration","src_bytes","dst_bytes","count","srv_count","serror_rate"]
-# (Eğer türev istiyorsan ilave edebilirsin; şu an Emirhan için sadece bu 6 özellik isteniyor.)
-
-# Girdi dosyaları (temizlenmiş halinizi kullanıyoruz)
-train_path = DATA_DIR / "nsl_kdd_train.csv"
-test_path  = DATA_DIR / "nsl_kdd_test.csv"
-
-# OK: her iki dosyayı da okuyup tek bir DataFrame yapalım (bazı kayıtlar zaten temizlenmiş)
-def read_csv_no_header(p: Path):
-    if not p.exists():
-        return pd.DataFrame(columns=KDD_COLUMNS)
-    return pd.read_csv(p, names=KDD_COLUMNS, header=None, encoding="utf-8", low_memory=False)
-
-df_train = read_csv_no_header(train_path)
-df_test  = read_csv_no_header(test_path)
-
-# Birleştir (tüm kullanılabilir örnekler)
-df_all = pd.concat([df_train, df_test], ignore_index=True)
-
-# Etiketleri ikili yap (0 = normal, 1 = attack) — aynı mantık features.py ile tutarlı olmalı
-def map_label(lbl):
-    s = str(lbl).lower()
-    if "normal" in s:
-        return 0
-    else:
-        return 1
-
-df_all["label_bin"] = df_all["label"].apply(map_label)
-
-# Sadece 6 özellik + label alalım
-cols_out = FEATURES + ["label_bin"]
-df_sub = df_all[cols_out].copy()
-
-# Basit temizleme: sayısal olmayanları numeric yap, NaN -> 0
-for c in FEATURES:
-    df_sub[c] = pd.to_numeric(df_sub[c], errors="coerce").fillna(0.0)
-
-# Stratified split %80 train / %20 test
-train_df, test_df = train_test_split(
-    df_sub,
-    test_size=0.20,
-    stratify=df_sub["label_bin"],
-    random_state=42
-)
-
-# Dosyaya yaz (başlıksız, index yok — proje formatıyla uyumlu)
-train_out = DELIVER_DIR / "train_80.csv"
-test_out  = DELIVER_DIR / "test_20.csv"
-train_df.to_csv(train_out, index=False, header=False)
-test_df.to_csv(test_out, index=False, header=False)
-
-# Meta / teslimat dosyaları
-meta = {
-    "num_total": int(len(df_sub)),
-    "train_rows": int(len(train_df)),
-    "test_rows": int(len(test_df)),
-    "feature_order": FEATURES,
-    "label_map": {"normal": 0, "attack": 1},
-    "note": "80/20 stratified split by label; no header; numeric features only."
+# Her feature için olası kolon adları (CIC export/sürüm farklarını yakalamak için)
+CANDIDATES = {
+    "duration": [
+        "Flow Duration", "flow_duration", "Flow_Duration"
+    ],
+    "src_bytes": [
+        "Total Fwd Bytes", "TotLen Fwd Pkts", "Total Length of Fwd Packets",
+        "Fwd Packets Length Total", "Fwd Bytes", "total_fwd_bytes"
+    ],
+    "dst_bytes": [
+        "Total Bwd Bytes", "TotLen Bwd Pkts", "Total Length of Bwd Packets",
+        "Bwd Packets Length Total", "Bwd Bytes", "total_bwd_bytes"
+    ],
+    "count": [
+        "Total Fwd Packets", "Tot Fwd Pkts", "Fwd Packet Count",
+        "Fwd Packets", "total_fwd_packets"
+    ],
+    # SYN flood sinyali için (yoksa 0’a düşeceğiz)
+    "syn": [
+        "SYN Flag Count", "Syn Flag Cnt", "SYN Flag Cnt", "syn_flag_count"
+    ],
+    "label": [
+        "Label", "label", "Attack", "Class"
+    ],
 }
-(DELIVER_DIR / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-# Kısa README
-readme = f"""
-NSL-KDD 80/20 teslim paketi
----------------------------
-Toplam örnek: {meta['num_total']}
-Eğitim (80%): {meta['train_rows']}
-Test (20%): {meta['test_rows']}
+def pick_col(df: pd.DataFrame, want: str) -> str | None:
+    """df kolonları içinde want için en uygun kolon adını bulur."""
+    cols = list(df.columns)
 
-Özellikler (sıra): {', '.join(FEATURES)}
-Etiketleme: label_bin (0 = normal, 1 = attack)
+    # 1) Birebir adaylar
+    for c in CANDIDATES.get(want, []):
+        if c in cols:
+            return c
 
-Dosyalar:
- - train_80.csv   (başlıksız, index yok)
- - test_20.csv    (başlıksız, index yok)
- - meta.json
-"""
-(DELIVER_DIR / "README.txt").write_text(readme.strip() + "\n", encoding="utf-8")
+    # 2) Case-insensitive + boşluk/altçizgi normalize ederek yakala
+    norm = {normalize(x): x for x in cols}
+    for c in CANDIDATES.get(want, []):
+        key = normalize(c)
+        if key in norm:
+            return norm[key]
 
-print("[ok] created deliver package at:", DELIVER_DIR)
-print(" - train:", train_out, "(", len(train_df), "rows )")
-print(" - test :", test_out,  "(", len(test_df),  "rows )")
+    return None
+
+def normalize(s: str) -> str:
+    return str(s).strip().lower().replace(" ", "_")
+
+def build_features(df: pd.DataFrame):
+    # Zorunlu kolonları seç
+    col_duration = pick_col(df, "duration")
+    col_srcbytes = pick_col(df, "src_bytes")
+    col_dstbytes = pick_col(df, "dst_bytes")
+    col_count    = pick_col(df, "count")
+    col_label    = pick_col(df, "label")
+    col_syn      = pick_col(df, "syn")  # opsiyonel
+
+    missing = [k for k, v in {
+        "duration": col_duration,
+        "src_bytes": col_srcbytes,
+        "dst_bytes": col_dstbytes,
+        "count": col_count,
+        "label": col_label,
+    }.items() if v is None]
+
+    if missing:
+        raise KeyError(
+            "Missing required columns: "
+            + ", ".join(missing)
+            + "\nAvailable columns sample:\n"
+            + ", ".join(list(map(str, df.columns[:40])))
+        )
+
+    X = pd.DataFrame()
+    X["duration"] = pd.to_numeric(df[col_duration], errors="coerce").fillna(0.0)
+    X["src_bytes"] = pd.to_numeric(df[col_srcbytes], errors="coerce").fillna(0.0)
+    X["dst_bytes"] = pd.to_numeric(df[col_dstbytes], errors="coerce").fillna(0.0)
+
+    pkt_count = pd.to_numeric(df[col_count], errors="coerce").fillna(0.0)
+    X["count"] = pkt_count
+    X["srv_count"] = pkt_count
+
+    if col_syn is not None:
+        syn = pd.to_numeric(df[col_syn], errors="coerce").fillna(0.0)
+        X["serror_rate"] = syn / (pkt_count.replace(0, 1))
+    else:
+        # SYN sayacı yoksa, 0 kabul et (kaba ama çalışır)
+        X["serror_rate"] = 0.0
+
+    X["bytes_ratio"] = (X["src_bytes"] + 1.0) / (X["dst_bytes"] + 1.0)
+    X["count_ratio"] = (X["srv_count"] + 1.0) / (X["count"] + 1.0)
+    X["log_src_bytes"] = np.log1p(X["src_bytes"])
+    X["log_dst_bytes"] = np.log1p(X["dst_bytes"])
+
+    X = X[FEATURE_ORDER].replace([np.inf, -np.inf], 0.0).fillna(0.0)
+
+    # Label: BENIGN -> 0, diğerleri -> 1
+    y_raw = df[col_label].astype(str).str.upper()
+    y = (y_raw != "BENIGN").astype(int)
+
+    picked = {
+        "duration": col_duration,
+        "src_bytes": col_srcbytes,
+        "dst_bytes": col_dstbytes,
+        "count": col_count,
+        "syn": col_syn,
+        "label": col_label,
+    }
+
+    return X, y, picked
+
+def main():
+    data_dir = Path("data_cic2019")
+    out_dir = Path("data_cic2019_out")
+    out_dir.mkdir(exist_ok=True)
+
+    X_all = []
+    y_all = []
+    picked_any = None
+
+    files = sorted(list(data_dir.glob("*-training.parquet")))
+    if not files:
+        raise FileNotFoundError(f"No *-training.parquet found in {data_dir.resolve()}")
+
+    for p in files:
+        print(f"Loading {p.name}")
+        df = pd.read_parquet(p)
+
+        X, y, picked = build_features(df)
+        if picked_any is None:
+            picked_any = picked
+            print("[picked columns on first file]", picked_any)
+
+        X_all.append(X)
+        y_all.append(y)
+
+    X_all = pd.concat(X_all, ignore_index=True)
+    y_all = pd.concat(y_all, ignore_index=True)
+
+    X_all.to_csv(out_dir / "X.csv", index=False, header=False)
+    y_all.to_csv(out_dir / "y.csv", index=False, header=False)
+
+    meta = {
+        "feature_order": FEATURE_ORDER,
+        "threshold": 0.5,
+        "dataset": "CIC-DDoS-2019 (parquet)",
+        "rows": int(len(X_all)),
+        "column_mapping_used": picked_any,
+        "label_map": {"BENIGN": 0, "OTHER": 1},
+    }
+
+    (out_dir / "model_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    print("DONE:", X_all.shape)
+    print("Output:", out_dir.resolve())
+
+if __name__ == "__main__":
+    main()

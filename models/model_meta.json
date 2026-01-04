@@ -1,18 +1,31 @@
 {
   "feature_order": [
-    "duration",
-    "src_bytes",
-    "dst_bytes",
-    "count",
-    "srv_count",
-    "serror_rate",
+    "Flow Duration",
+    "Total Length of Fwd Packets",
+    "Total Length of Bwd Packets",
+    "Total Fwd Packets",
+    "Total Backward Packets",
+    "Flow Packets/s",
+    "Flow Bytes/s",
+    "SYN Flag Count",
+    "RST Flag Count",
+    "ACK Flag Count",
     "bytes_ratio",
-    "count_ratio",
-    "log_src_bytes",
-    "log_dst_bytes"
+    "packet_ratio",
+    "log_flow_duration",
+    "log_fwd_bytes",
+    "log_bwd_bytes",
+    "syn_ratio",
+    "rst_ratio",
+    "ack_ratio",
+    "estimated_packets"
   ],
   "label_positive": 1,
   "label_negative": 0,
   "notes": "Ryu tarafında feature_order sırasıyla numerik vektör üretmelisin.",
-  "threshold": 0.5
+  "threshold": 0.44999999999999996,
+  "test_accuracy": 0.9990812495006791,
+  "test_f1": 0.9992695862047064,
+  "n_estimators": 100,
+  "dataset": "CIC-IDS2019"
 }
