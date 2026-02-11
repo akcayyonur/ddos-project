@@ -314,32 +314,10 @@ DoS: HULK, GoldenEye, Slowloris, SlowHTTPTest
 Other: Port Scan, Bot, Web Attack, SSH/FTP Brute Force
 ```
 
-## 🚀 Future Improvements
-
-- [ ] Multi-class classification (identify specific attack types)
-- [ ] Real-time model updates with incremental learning
-- [ ] Feature selection optimization
-- [ ] Ensemble methods (XGBoost, LightGBM)
-- [ ] Explainability (SHAP, LIME)
-- [ ] Web dashboard for monitoring
-- [ ] Kubernetes deployment support
-
 ## 📜 License
 
 This project is available under the MIT License.
 
-## 👤 Author
-
-Created for network security and SDN research.
-
-## 🤝 Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/improvement`)
-3. Commit changes (`git commit -am 'Add feature'`)
-4. Push to branch (`git push origin feature/improvement`)
-5. Open a Pull Request
 
 ## 📚 References
 
@@ -347,22 +325,3 @@ Contributions welcome! Please:
 - [Ryu SDN Controller](https://ryu-sdn.org/)
 - [scikit-learn RandomForest](https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html)
 - [OpenFlow 1.3 Specification](https://opennetworking.org/software-defined-standards/specifications/)
-
-## ❓ FAQ
-
-**Q: Can I use a different dataset?**
-A: Yes, but ensure similar network flow features. Update column mapping in `features.py`.
-
-**Q: What's the inference latency?**
-A: ~1-5ms per packet classification on modern hardware (model prediction only).
-
-**Q: Can the model detect unknown attack types?**
-A: Yes, anomaly detection capability depends on training diversity. CIC-IDS2019 covers 14+ attack types.
-
-**Q: How do I deploy this in production?**
-A: See Ryu SDN integration section. Requires OpenFlow-compatible switch and controller placement.
-
----
-
-**Last Updated**: February 2026  
-**Model Version**: 1.0 (CIC-IDS2019, Random Forest)
